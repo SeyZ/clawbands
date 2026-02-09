@@ -90,6 +90,14 @@ export class Arbitrator {
   private judgeChannel(context: ExecutionContext): boolean {
     const { sessionKey, moduleName, methodName } = context;
 
+    // Path 0: blanket allow — auto-approved for this session + method (15 min window)
+    if (approvalQueue.hasBlanketAllow(sessionKey!, moduleName, methodName)) {
+      logger.info(`ASK policy → auto-approved (blanket allow): ${moduleName}.${methodName}()`, {
+        sessionKey,
+      });
+      return true;
+    }
+
     // Path A (primary): explicit approval — clawbands_respond({ decision: "yes" })
     // called approve().
     if (approvalQueue.consume(sessionKey!, moduleName, methodName)) {

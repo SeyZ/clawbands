@@ -40,6 +40,7 @@ const CLEANUP_INTERVAL_MS = 30_000;
 
 export class ApprovalQueue {
   private entries = new Map<string, ApprovalEntry>();
+  private blanketAllows = new Map<string, number>(); // key → expiresAt
   private lastCleanup = Date.now();
   private ttl: number;
 
@@ -232,6 +233,50 @@ export class ApprovalQueue {
   }
 
   // ---------------------------------------------------------------------------
+  // Blanket allows (time-limited auto-approve)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Auto-approve a module.method for this session during durationMs.
+   * In-memory only — does not modify policy.json.
+   */
+  allowFor(sessionKey: string, moduleName: string, methodName: string, durationMs: number): void {
+    const k = this.key(sessionKey, moduleName, methodName);
+    this.blanketAllows.set(k, Date.now() + durationMs);
+    logger.info(`ApprovalQueue: blanket allow created`, {
+      sessionKey,
+      action: `${moduleName}.${methodName}`,
+      durationMs,
+    });
+  }
+
+  /**
+   * Check if a blanket allow is active for this session + method.
+   * Expired entries are cleaned up on access.
+   */
+  hasBlanketAllow(sessionKey: string, moduleName: string, methodName: string): boolean {
+    const k = this.key(sessionKey, moduleName, methodName);
+    const expiresAt = this.blanketAllows.get(k);
+    if (!expiresAt) return false;
+    if (Date.now() >= expiresAt) {
+      this.blanketAllows.delete(k);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Get all pending actions for a session (module/method pairs).
+   * Used by the ALLOW handler to know which methods to blanket-allow.
+   */
+  getPendingActions(sessionKey: string): Array<{ moduleName: string; methodName: string }> {
+    return this.keysForSession(sessionKey)
+      .map((k) => this.entries.get(k)!)
+      .filter((e) => e.status === 'pending' && Date.now() < e.expiresAt)
+      .map((e) => ({ moduleName: e.moduleName, methodName: e.methodName }));
+  }
+
+  // ---------------------------------------------------------------------------
   // Housekeeping
   // ---------------------------------------------------------------------------
 
@@ -246,6 +291,11 @@ export class ApprovalQueue {
     for (const [k, entry] of this.entries) {
       if (now >= entry.expiresAt) {
         this.entries.delete(k);
+      }
+    }
+    for (const [k, expiresAt] of this.blanketAllows) {
+      if (now >= expiresAt) {
+        this.blanketAllows.delete(k);
       }
     }
     this.lastCleanup = now;

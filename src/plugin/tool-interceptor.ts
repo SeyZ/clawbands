@@ -9,7 +9,7 @@ import { logger } from '../core/Logger';
 
 /**
  * Tool name for the custom clawbands_respond tool.
- * The LLM calls this to relay the user's YES/NO decision.
+ * The LLM calls this to relay the user's YES/NO/ALLOW decision.
  */
 export const CLAWBANDS_RESPOND_TOOL = 'clawbands_respond';
 
@@ -114,6 +114,7 @@ function handleRespondTool(
   params: Record<string, unknown>,
   ctx: ToolContext
 ): BeforeToolCallResult {
+  const BLANKET_DURATION_MS = 15 * 60 * 1000;
   const decision = typeof params.decision === 'string' ? params.decision.toLowerCase() : '';
   const sessionKey = ctx.sessionKey;
 
@@ -138,8 +139,23 @@ function handleRespondTool(
     return { block: true, blockReason: 'Denied. Do NOT retry the blocked tool.' };
   }
 
+  if (decision === 'allow') {
+    const pending = approvalQueue.getPendingActions(sessionKey);
+    if (pending.length === 0) {
+      logger.info(`[${CLAWBANDS_RESPOND_TOOL}] No pending approvals for ALLOW`, { sessionKey });
+      return { block: true, blockReason: 'No pending approvals to allow.' };
+    }
+    for (const { moduleName, methodName } of pending) {
+      approvalQueue.allowFor(sessionKey, moduleName, methodName, BLANKET_DURATION_MS);
+    }
+    const count = approvalQueue.approve(sessionKey);
+    const rules = pending.map((p) => `${p.moduleName}.${p.methodName}`).join(', ');
+    logger.info(`[${CLAWBANDS_RESPOND_TOOL}] ALLOW for 15 min`, { sessionKey, rules, count });
+    return { block: true, blockReason: `Approved for 15 minutes: ${rules}. Retry the blocked tool.` };
+  }
+
   logger.warn(`[${CLAWBANDS_RESPOND_TOOL}] Invalid decision: "${params.decision}"`, { sessionKey });
-  return { block: true, blockReason: 'Invalid decision. Use "yes" or "no".' };
+  return { block: true, blockReason: 'Invalid decision. Use "yes", "no", or "allow".' };
 }
 
 /**

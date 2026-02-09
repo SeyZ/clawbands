@@ -45,14 +45,14 @@ function tryRegisterTool(api: OpenClawPluginApi): boolean {
     }
     api.registerTool({
       name: CLAWBANDS_RESPOND_TOOL,
-      description: 'Respond to a ClawBands security prompt. Call after the user says YES or NO.',
+      description: 'Respond to a ClawBands security prompt. Call after the user says YES, NO, or ALLOW.',
       parameters: {
         type: 'object',
         properties: {
           decision: {
             type: 'string',
-            enum: ['yes', 'no'],
-            description: 'The user decision: "yes" to approve, "no" to deny.',
+            enum: ['yes', 'no', 'allow'],
+            description: 'The user decision: "yes" to approve once, "no" to deny, "allow" to auto-approve for 15 minutes.',
           },
         },
         required: ['decision'],
@@ -117,7 +117,7 @@ export default {
 
       // -----------------------------------------------------------------------
       // Tool registration: clawbands_respond
-      // If available, the LLM sees this tool and calls it with { decision: "yes"|"no" }.
+      // If available, the LLM sees this tool and calls it with { decision: "yes"|"no"|"allow" }.
       // The actual logic is intercepted in before_tool_call (tool-interceptor.ts).
       // -----------------------------------------------------------------------
       const toolRegistered = tryRegisterTool(api);
